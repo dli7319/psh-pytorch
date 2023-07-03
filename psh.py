@@ -10,7 +10,7 @@ import tqdm
 import utils
 
 
-class PerfectHash(nn.Module):
+class PerfectSpatialHash(nn.Module):
     def __init__(self, occupancy_grid: torch.Tensor, feature_channels: int,
                  fast_construction: bool = True,
                  offset_table_size: Optional[int] = None,
@@ -303,7 +303,7 @@ def test_bulb():
     assert torch.sum(bulb_occupancy_grid.bool()
                      ) == 1381, "Number of occupied pixels is not correct."
 
-    perfect_hash = PerfectHash(bulb_occupancy_grid, 3, offset_table_size=18)
+    perfect_hash = PerfectSpatialHash(bulb_occupancy_grid, 3, offset_table_size=18)
 
     indices = torch.stack(torch.meshgrid(torch.arange(128, device=device),
                                          torch.arange(128, device=device),
