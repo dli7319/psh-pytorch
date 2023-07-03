@@ -5,7 +5,7 @@ import torch
 from torch import nn
 import tqdm
 
-import src.utils as utils
+from . import utils
 
 C1 = 1178101
 
