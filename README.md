@@ -1,2 +1,2 @@
-# psh-pytorch
+# perfecthash-pytorch
 Perfect Spatial Hashing in PyTorch
