@@ -1,13 +1,30 @@
-import os
-from typing import Optional
+from typing import Optional, Union
 
 import numpy as np
 import torch
 from torch import nn
-from PIL import Image
 import tqdm
 
-import utils
+import src.utils as utils
+
+C1 = 1178101
+
+
+def sparsity_hash(k: Union[int, torch.Tensor], p: torch.Tensor) -> torch.Tensor:
+    """Hash function used for sparsity encoding
+
+    Args:
+        k: Which hash to use.
+        p: Points to hash as (N, D) tensor.
+
+    Returns:
+        torch.Tensor: The hash as (N,) tensor.
+    """
+    if isinstance(k, int):
+        k = torch.tensor(k, device=p.device, dtype=torch.uint8)
+    k = k.unsqueeze(-1)
+    hk = (p * (p + k * C1).rsqrt()).sum(dim=-1).frac()
+    return (256 * hk).clamp(0, 255).to(torch.uint8)
 
 
 class PerfectSpatialHash(nn.Module):
@@ -33,11 +50,11 @@ class PerfectSpatialHash(nn.Module):
         occupancy_grid = occupancy_grid.bool()
 
         self.num_values = torch.sum(occupancy_grid).item()
-        print("Number of values:", self.num_values)
+        self.verbose and print("Number of values:", self.num_values)
 
         self.hash_table_size = int(np.ceil(
             self.num_values ** (1 / self.dimensions)))
-        print("Hash table size:", self.hash_table_size)
+        self.verbose and print("Hash table size:", self.hash_table_size)
         if self.hash_table_size > 256:
             self.hash_table_size = int(np.ceil(
                 (1.01 * self.num_values) ** (1 / self.dimensions)))
@@ -49,7 +66,7 @@ class PerfectSpatialHash(nn.Module):
         initial_offset_table_size = offset_table_size or int(np.ceil(
             (sigma * self.num_values) ** (1 / self.dimensions)))
         self.offset_table_size = initial_offset_table_size
-        print("Offset table size:", self.offset_table_size)
+        self.verbose and print("Offset table size:", self.offset_table_size)
         self.offset_table = nn.Parameter(torch.zeros(
             (self.offset_table_size,) * self.dimensions + (self.dimensions,),
             dtype=torch.uint8, device=device), requires_grad=False)
@@ -64,9 +81,10 @@ class PerfectSpatialHash(nn.Module):
             # Increase the offset table size.
             new_offset_table_size = int(max(
                 np.round(fast_construction_offset_table_progression *
-                            self.offset_table_size),
+                         self.offset_table_size),
                 self.offset_table_size + 1))
-            print(f"Increasing offset table size to {new_offset_table_size}")
+            self.verbose and print(
+                f"Increasing offset table size to {new_offset_table_size}")
             self.offset_table_size = new_offset_table_size
             self.offset_table = nn.Parameter(torch.zeros(
                 (self.offset_table_size,) *
@@ -79,7 +97,7 @@ class PerfectSpatialHash(nn.Module):
             low = initial_offset_table_size
             high = self.offset_table_size + 1
             raise NotImplementedError("Slow construction not implemented yet.")
-        
+
         self.sparsity_encoding = self._build_sparsity_encoding(occupancy_grid)
 
     def _build_offset_table(self, occupancy_grid: torch.Tensor) -> bool:
@@ -223,15 +241,51 @@ class PerfectSpatialHash(nn.Module):
                             break
 
             if not offset_assigned:
-                print(f"Could not assign offset with index {current_index} and " +
-                      f"pixels {occupied_indices_bincount[ordering[current_index]].item()}]")
+                self.verbose and print(f"Could not assign offset with index {current_index} and " +
+                                       f"pixels {occupied_indices_bincount[ordering[current_index]].item()}]")
                 return False
         # if self.verbose:
         #     print("offset_table_assigned", offset_table_assigned)
         return True
-    
+
     def _build_sparsity_encoding(self, occupancy_grid: torch.Tensor):
-        pass
+        unoccupied_grid = ~occupancy_grid
+        sparsity_k = torch.zeros(
+            self.hash_table[..., 0].shape, dtype=torch.uint8, device=self.hash_table.device)
+        sparsity_hk = torch.zeros(
+            self.hash_table[..., 0].shape, dtype=torch.uint8, device=self.hash_table.device)
+
+        occupied_indices = occupancy_grid.nonzero(as_tuple=False)
+        occupied_indices_hashed = self.compute_hash(occupied_indices)
+        sparsity_k[occupied_indices_hashed.unbind(-1)] = 1
+        sparsity_hk[occupied_indices_hashed.unbind(
+            -1)] = sparsity_hash(1, occupied_indices)
+
+        unoccupied_indices = unoccupied_grid.nonzero(as_tuple=False)
+        unoccupied_indices_hashed = self.compute_hash(unoccupied_indices)
+        for i in range(1, 256):
+            unoccupied_indices_shashed = sparsity_hash(
+                sparsity_k[unoccupied_indices_hashed.unbind(-1)], unoccupied_indices)
+            collisions = torch.logical_and(
+                sparsity_k[unoccupied_indices_hashed.unbind(-1)] != 0,
+                sparsity_hk[unoccupied_indices_hashed.unbind(-1)] == unoccupied_indices_shashed)
+            number_of_collisions = collisions.sum()
+            self.verbose and print(
+                f"Number of collisions for {i} is {number_of_collisions}")
+            if number_of_collisions == 0:
+                break
+            sparsity_k[unoccupied_indices_hashed[collisions].unbind(-1)] = 0
+            sparsity_hk[unoccupied_indices_hashed[collisions].unbind(-1)] = (
+                sparsity_hk[unoccupied_indices_hashed[collisions].unbind(-1)] + 1)
+            if i < 254:
+                collided_indices = sparsity_k[occupied_indices_hashed.unbind(
+                    -1)] == 0
+                sparsity_k[occupied_indices_hashed[collided_indices]
+                           .unbind(-1)] = i+1
+                sparsity_hk[occupied_indices_hashed[collided_indices].unbind(
+                    -1)] = sparsity_hash(i+1, occupied_indices[collided_indices])
+        return nn.Parameter(torch.stack([sparsity_k, sparsity_hk], dim=-1),
+                            requires_grad=False)
 
     def _compute_offset_hash(self, x: torch.Tensor) -> torch.Tensor:
         """Compute the hash of the input tensor into the offset table.
@@ -262,10 +316,15 @@ class PerfectSpatialHash(nn.Module):
         """Forward pass of the perfect hash function.
 
         Args:
-            x (torch.Tensor): Input tensor of shape (N, C).
+            Tuple[torch.Tensor, torch.Tensor]: Hashed values and sparsity.
         """
         hash_indices = self.compute_hash(x)
-        return self.hash_table[hash_indices.unbind(-1)]
+        values = self.hash_table[hash_indices.unbind(-1)]
+        sparsity_k, sparsity_hk = self.sparsity_encoding[hash_indices.unbind(
+            -1)].unbind(-1)
+        correct_hk = torch.logical_and(
+            sparsity_k > 0, sparsity_hash(sparsity_k, x) == sparsity_hk)
+        return values, correct_hk
 
     def encode(self, positions: torch.Tensor, values: torch.Tensor):
         """Encode the input values into the hash table.
@@ -285,44 +344,3 @@ class PerfectSpatialHash(nn.Module):
         """
         hash_indices = self.compute_hash(positions)
         return torch.unique(hash_indices, dim=0).shape[0] != hash_indices.shape[0]
-
-
-def test_bulb():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    bulb_screenshot_path = os.path.join(
-        os.path.dirname(__file__), 'data', 'bulb.png')
-
-    bulb_screenshot = np.array(Image.open(
-        bulb_screenshot_path), dtype=np.float32) / 255
-    bulb_screenshot = torch.from_numpy(bulb_screenshot).to(device)
-
-    height, width, _ = bulb_screenshot.shape
-    assert height == width == 128, "Bulb screenshot is not 128x128 pixels."
-
-    bulb_occupancy_grid = bulb_screenshot[:, :, 3]
-    assert torch.sum(bulb_occupancy_grid.bool()
-                     ) == 1381, "Number of occupied pixels is not correct."
-
-    perfect_hash = PerfectSpatialHash(bulb_occupancy_grid, 3, offset_table_size=18)
-
-    indices = torch.stack(torch.meshgrid(torch.arange(128, device=device),
-                                         torch.arange(128, device=device),
-                                         indexing='ij'), -1)
-
-    # Save the image into the hash table.
-    valid_pixels = bulb_occupancy_grid.nonzero(as_tuple=False).long()
-    assert not perfect_hash.check_collisions(
-        valid_pixels), "There are collisions in the hash table."
-    perfect_hash.encode(
-        valid_pixels, bulb_screenshot[valid_pixels.unbind(-1)][:, :3])
-
-    reconstruction = perfect_hash(indices.reshape(-1, 2)).reshape(128, 128, 3)
-    print(reconstruction.shape)
-    # Save the reconstruction image.
-    Image.fromarray((reconstruction.detach().cpu().numpy() * 255).astype(np.uint8)).save(
-        os.path.join("output", "bulb_reconstruction.png"))
-    print("Saved the reconstruction image.")
-
-
-if __name__ == '__main__':
-    test_bulb()
