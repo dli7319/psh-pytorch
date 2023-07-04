@@ -1,1 +1,1 @@
-from .psh import PerfectSpatialHash
+from .psh import PerfectSpatialHash # noqa

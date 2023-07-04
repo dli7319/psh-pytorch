@@ -25,9 +25,12 @@ class PerfectSpatialHash(nn.Module):
             fast_construction: If true, avoids binary searching over the offset table size.
             fast_construction_offset_table_progression: (Optional) The progression factor of the offset table size.
             build_offset_table: (Optional) Whether to compute the offset table. Requires the occupancy grid.
-            dimensions: (Optional) The number of dimensions of the hash table. Infered from the occupancy grid if available.
-            hash_table_size: (Optional) The size of the hash table to initialize. Infered from the occupancy grid if available.
-            offset_table_size: (Optional) The initial size of the offset table to test. Infered from the occupancy grid if unspecified.
+            dimensions: (Optional) The number of dimensions of the hash table. Infered from the occupancy grid
+              if available.
+            hash_table_size: (Optional) The size of the hash table to initialize. Infered from the occupancy
+              grid if available.
+            offset_table_size: (Optional) The initial size of the offset table to test. Infered from the occupancy
+              grid if unspecified.
             verbose: (Optional) Whether to print additional information.
         """
         super().__init__()
@@ -89,8 +92,8 @@ class PerfectSpatialHash(nn.Module):
         self.hash_table.data = torch.rand_like(self.hash_table.data)
         if build_offset_table and not fast_construction:
             # TODO: Binary search for the offset table size.
-            low = initial_offset_table_size
-            high = self.offset_table_size + 1
+            # low = initial_offset_table_size
+            # high = self.offset_table_size + 1
             raise NotImplementedError("Slow construction not implemented yet.")
 
         if build_offset_table:
