@@ -25,7 +25,7 @@ def encode_bulb():
     assert torch.sum(bulb_occupancy_grid.bool()
                      ) == 1381, "Number of occupied pixels is not correct."
 
-    perfect_hash = PerfectSpatialHash(
+    spatial_hash = PerfectSpatialHash(
         bulb_occupancy_grid, 3, offset_table_size=18,
         verbose=False)
 
@@ -35,12 +35,12 @@ def encode_bulb():
 
     # Save the image into the hash table.
     valid_pixels = bulb_occupancy_grid.nonzero(as_tuple=False).long()
-    assert not perfect_hash.check_collisions(
+    assert not spatial_hash.check_collisions(
         valid_pixels), "There are collisions in the hash table."
-    perfect_hash.encode(
+    spatial_hash.encode(
         valid_pixels, bulb_screenshot[valid_pixels.unbind(-1)][:, :3])
 
-    values, sparsity = perfect_hash(indices.reshape(-1, 2))
+    values, sparsity = spatial_hash(indices.reshape(-1, 2))
     reconstruction = (values * sparsity.unsqueeze(-1)).reshape(128, 128, 3)
     # Save the reconstruction image.
     output_dir = os.path.join(os.path.dirname(__file__), 'output')
@@ -70,11 +70,11 @@ def encode_bulb_with_gd():
     assert torch.sum(bulb_occupancy_grid.bool()
                      ) == 1381, "Number of occupied pixels is not correct."
 
-    perfect_hash = PerfectSpatialHash(
+    spatial_hash = PerfectSpatialHash(
         bulb_occupancy_grid, 3, offset_table_size=18,
         verbose=False)
 
-    optimizer = torch.optim.Adam(perfect_hash.parameters(), lr=0.01)
+    optimizer = torch.optim.Adam(spatial_hash.parameters(), lr=0.01)
 
     indices = torch.stack(torch.meshgrid(torch.arange(128, device=device),
                                          torch.arange(128, device=device),
@@ -83,7 +83,7 @@ def encode_bulb_with_gd():
     pbar = tqdm.trange(iterations)
     for i in pbar:
         optimizer.zero_grad()
-        values, sparsity = perfect_hash(indices.reshape(-1, 2))
+        values, sparsity = spatial_hash(indices.reshape(-1, 2))
         reconstruction = (values * sparsity.unsqueeze(-1)).reshape(128, 128, 3)
         loss = torch.sum((reconstruction - bulb_screenshot[:, :, :3]) ** 2)
         pbar.set_postfix({'loss': loss.item()})
