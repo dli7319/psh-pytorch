@@ -17,9 +17,9 @@ def ravel_multi_index(multi_index, dims):
     Returns:
         torch.Tensor: The single index as (N,) tensor.
     """
-    dims_cumprod = torch.tensor(
-        dims[:0:-1], device=multi_index.device).cumprod(0)
-    return torch.sum(multi_index[..., :-1] * dims_cumprod, dim=-1) + multi_index[..., -1]
+    dims_cumprod = torch.tensor(tuple(dims[1:]) + (1,), device=multi_index.device)
+    dims_cumprod = dims_cumprod.flip(0).cumprod(0).flip(0)
+    return torch.sum(multi_index * dims_cumprod, dim=-1)
 
 
 def unravel_index(index, dims):
@@ -32,15 +32,9 @@ def unravel_index(index, dims):
     Returns:
         torch.Tensor: The multidimensional index as (N, D) tensor.
     """
-    dims_cumprod = torch.tensor(
-        dims[:0:-1], device=index.device).cumprod(0)
-    multi_index = torch.zeros(
-        (*index.shape, len(dims)), device=index.device, dtype=torch.long)
-    for i, dim in enumerate(dims_cumprod):
-        multi_index[..., i] = index // dim
-        index = index % dim
-    multi_index[..., -1] = index
-    return multi_index
+    dims_cumprod = torch.tensor(tuple(dims) + (1, ), device=index.device)
+    dims_cumprod = dims_cumprod.flip(0).cumprod(0).flip(0)
+    return index.unsqueeze(-1) % dims_cumprod[:-1] // dims_cumprod[1:]
 
 
 def sparsity_hash(k: Union[int, torch.Tensor], p: torch.Tensor) -> torch.Tensor:
