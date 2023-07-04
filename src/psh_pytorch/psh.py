@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Callable
 
 import numpy as np
 import torch
@@ -184,77 +184,101 @@ class PerfectSpatialHash(nn.Module):
                 return True
 
             # Heuristic 1: Try the neighboring pixels.
-            if not offset_assigned:
-                if len(pixel_indices) < 10:
-                    for pixel_index in pixel_indices:
-                        for direction in range(self.dimensions):
-                            direction_offset = torch.zeros(
-                                (self.dimensions,), dtype=torch.long, device=self.offset_table.device)
-                            direction_offset[direction] = 1
-                            index = (pixel_index +
-                                     direction_offset).clamp(0, occupancy_grid_size - 1)
-                            oindex = (
-                                index * self.m1).long() % self.offset_table_size
-                            if (offset_table_assigned[oindex.unbind(-1)] and
-                                    assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
-                                break
-                            direction_offset[direction] = -1
-                            index = (pixel_index +
-                                     direction_offset).clamp(0, occupancy_grid_size - 1)
-                            oindex = (
-                                index * self.m1).long() % self.offset_table_size
-                            if (offset_table_assigned[oindex.unbind(-1)] and
-                                    assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
-                                break
+            offset_assigned or self._assign_offset_from_neighboring_pixels(
+                pixel_indices, offset_table_assigned,
+                occupancy_grid_size, assign_offset)
 
             # Heuristic 2: Try the neighboring offsets.
-            if not offset_assigned:
-                for direction in range(self.dimensions):
-                    direction_offset = torch.zeros(
-                        (self.dimensions,), dtype=torch.long, device=self.offset_table.device)
-                    direction_offset[direction] = 1
-                    index = (current_offset_index +
-                             direction_offset).clamp(0, self.offset_table_size - 1)
-                    if (offset_table_assigned[index.unbind(-1)] and
-                            assign_offset(self.offset_table[index.unbind(-1)].clone())):
-                        break
-                    direction_offset[direction] = -1
-                    index = (current_offset_index +
-                             direction_offset).clamp(0, self.offset_table_size - 1)
-                    if (offset_table_assigned[index.unbind(-1)] and
-                            assign_offset(self.offset_table[index.unbind(-1)].clone())):
-                        break
+            offset_assigned or self._assign_offset_from_neighboring_offsets(
+                current_offset_index, offset_table_assigned, assign_offset)
 
             # Heuristic 3: Try random offsets.
-            if not offset_assigned:
-                for _ in range(100):
-                    random_offset = torch.randint(
-                        0, 256, (self.dimensions,), dtype=torch.uint8, device=self.offset_table.device)
-                    if assign_offset(random_offset):
-                        break
+            offset_assigned or self._assign_offset_from_random_offsets(
+                assign_offset)
 
             # Heuristic 4: Find empty positions in the hash table.
-            if not offset_assigned:
-                for _ in range(100):
-                    random_pixel = torch.randint(
-                        0, 256, (self.dimensions,), dtype=torch.uint8, device=self.offset_table.device)
-                    # Hashed position of the pixel.
-                    random_pixel_hashed = (
-                        random_pixel * self.m0).long() % self.hash_table_size
-                    # Check if the position is empty.
-                    if self.hash_table[random_pixel_hashed.unbind(-1)][0].item() == 0:
-                        offset = (random_pixel_hashed -
-                                  pixel_indices_hashed[0] + 10 * 255) % 256
-                        if assign_offset(offset):
-                            break
+            offset_assigned or self._assign_offset_from_random_pixels(
+                pixel_indices_hashed, assign_offset)
 
             if not offset_assigned:
                 self.verbose and print(f"Could not assign offset with index {current_index} and " +
                                        f"pixels {occupied_indices_bincount[ordering[current_index]].item()}]")
                 return False
-        # if self.verbose:
-        #     print("offset_table_assigned", offset_table_assigned)
         return True
+
+    def _assign_offset_from_neighboring_pixels(self, pixel_indices: torch.Tensor,
+                                               offset_table_assigned: torch.Tensor,
+                                               occupancy_grid_size: int,
+                                               assign_offset: Callable[[torch.Tensor], bool]) -> bool:
+        """Heuristic: Assign an offset to the current pixel from neighboring pixels."""
+        if len(pixel_indices) < 10:
+            for pixel_index in pixel_indices:
+                for direction in range(self.dimensions):
+                    direction_offset = torch.zeros(
+                        (self.dimensions,), dtype=torch.long, device=self.offset_table.device)
+                    direction_offset[direction] = 1
+                    index = (pixel_index +
+                             direction_offset).clamp(0, occupancy_grid_size - 1)
+                    oindex = (
+                        index * self.m1).long() % self.offset_table_size
+                    if (offset_table_assigned[oindex.unbind(-1)] and
+                            assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
+                        return True
+                    direction_offset[direction] = -1
+                    index = (pixel_index +
+                             direction_offset).clamp(0, occupancy_grid_size - 1)
+                    oindex = (
+                        index * self.m1).long() % self.offset_table_size
+                    if (offset_table_assigned[oindex.unbind(-1)] and
+                            assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
+                        return True
+        return False
+
+    def _assign_offset_from_neighboring_offsets(self,
+                                                current_offset_index: torch.Tensor,
+                                                offset_table_assigned: torch.Tensor,
+                                                assign_offset: Callable[[torch.Tensor], bool]) -> bool:
+        """Heuristic: Assign an offset to the current pixel from neighboring offsets."""
+        for direction in range(self.dimensions):
+            direction_offset = torch.zeros(
+                (self.dimensions,), dtype=torch.long, device=self.offset_table.device)
+            direction_offset[direction] = 1
+            index = (current_offset_index +
+                     direction_offset).clamp(0, self.offset_table_size - 1)
+            if (offset_table_assigned[index.unbind(-1)] and
+                    assign_offset(self.offset_table[index.unbind(-1)].clone())):
+                return True
+            direction_offset[direction] = -1
+            index = (current_offset_index +
+                     direction_offset).clamp(0, self.offset_table_size - 1)
+            if (offset_table_assigned[index.unbind(-1)] and
+                    assign_offset(self.offset_table[index.unbind(-1)].clone())):
+                return True
+        return False
+
+    def _assign_offset_from_random_offsets(self, assign_offset: Callable[[torch.Tensor], bool]) -> bool:
+        for _ in range(100):
+            random_offset = torch.randint(
+                0, 256, (self.dimensions,), dtype=torch.uint8, device=self.offset_table.device)
+            if assign_offset(random_offset):
+                return True
+        return False
+
+    def _assign_offset_from_random_pixels(self, pixel_indices_hashed: torch.Tensor,
+                                          assign_offset: Callable[[torch.Tensor], bool]) -> bool:
+        for _ in range(100):
+            random_pixel = torch.randint(
+                0, 256, (self.dimensions,), dtype=torch.uint8, device=self.offset_table.device)
+            # Hashed position of the pixel.
+            random_pixel_hashed = (
+                random_pixel * self.m0).long() % self.hash_table_size
+            # Check if the position is empty.
+            if self.hash_table[random_pixel_hashed.unbind(-1)][0].item() == 0:
+                offset = (random_pixel_hashed -
+                          pixel_indices_hashed[0] + 10 * 255) % 256
+                if assign_offset(offset):
+                    return True
+        return False
 
     def _build_sparsity_encoding(self, occupancy_grid: torch.Tensor):
         sparsity_k = torch.zeros(
