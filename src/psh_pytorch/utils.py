@@ -3,8 +3,7 @@ from typing import Union
 import torch
 
 
-C1 = [827, 887, 433, 673, 431,
-      271, 587, 607, 859, 953]
+C1 = [79, 23, 71, 31, 11, 64, 41, 67, 89, 43]
 
 
 def ravel_multi_index(multi_index, dims):
@@ -17,7 +16,8 @@ def ravel_multi_index(multi_index, dims):
     Returns:
         torch.Tensor: The single index as (N,) tensor.
     """
-    dims_cumprod = torch.tensor(tuple(dims[1:]) + (1,), device=multi_index.device)
+    dims_cumprod = torch.tensor(
+        tuple(dims[1:]) + (1,), device=multi_index.device)
     dims_cumprod = dims_cumprod.flip(0).cumprod(0).flip(0)
     return torch.sum(multi_index * dims_cumprod, dim=-1)
 
