@@ -26,6 +26,15 @@ class Test2DBulb(unittest.TestCase):
             128, device=device),
             indexing='ij'), -1)
 
+    def test_hashtable_offsettable_sizes(self):
+        """
+        Check that the hash table and offset table sizes are not too big.
+        """
+        self.assertLessEqual(self.spatial_hash.hash_table_size, 38,
+                             "Hash table size is too big.")
+        self.assertLessEqual(self.spatial_hash.offset_table_size, 30,
+                             "Offset table size is too big.")
+
     def test_collisions(self):
         """
         Check that there are no collisions in the hash table.
