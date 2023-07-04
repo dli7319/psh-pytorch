@@ -16,7 +16,7 @@ class PerfectSpatialHash(nn.Module):
                  hash_table_size: Optional[int] = None,
                  offset_table_size: Optional[int] = None,
                  build_offset_table: bool = True,
-                 verbose=False):
+                 verbose: bool = False):
         """Initialize the perfect hash.
 
         Args:
