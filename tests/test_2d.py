@@ -56,6 +56,30 @@ class Test2D(unittest.TestCase):
         error_string = f"Max Error: {torch.max(torch.abs(reconstruction - gt_image))}"
         self.assertTrue(torch.allclose(reconstruction, gt_image), error_string)
 
+    def test_gradient_descent(self):
+        """
+        Test that gradients can propagate to the spatial hash.
+        """
+        values, sparsity = self.spatial_hash(self.indices.reshape(-1, 2))
+        reconstruction = (values * sparsity.unsqueeze(-1)).reshape(128, 128, 3)
+        gt_image = (self.bulb_image[:, :, :3] *
+                    self.bulb_image[:, :, 3].bool().unsqueeze(-1))
+        loss = torch.sum((reconstruction - gt_image)**2)
+        loss.backward()
+        loss = loss.detach()
+
+        # Check that gradients are non-zero.
+        self.assertTrue(torch.any(self.spatial_hash.hash_table.grad != 0),
+                        "Gradients are all zero.")
+
+        # Check that the gradients are correct.
+        self.spatial_hash.hash_table.data -= 0.01 * self.spatial_hash.hash_table.grad
+        values, sparsity = self.spatial_hash(self.indices.reshape(-1, 2))
+        reconstruction = (values * sparsity.unsqueeze(-1)).reshape(128, 128, 3)
+        new_loss = torch.sum((reconstruction - gt_image)**2)
+        self.assertLess(new_loss, loss,
+                        f"New Loss ({new_loss}) >= Old Loss ({loss})")
+
 
 if __name__ == '__main__':
     unittest.main()
