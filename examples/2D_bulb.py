@@ -3,11 +3,13 @@ import os
 import torch
 from PIL import Image
 import numpy as np
+import tqdm
 
 from psh_pytorch import PerfectSpatialHash
 
 
-def test_bulb():
+def encode_bulb():
+    """Encode the bulb image into the hash table and reconstruct it."""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     bulb_screenshot_path = os.path.join(
         os.path.dirname(__file__), 'data', 'bulb.png')
@@ -47,5 +49,58 @@ def test_bulb():
         os.path.join(output_dir, "bulb_reconstruction.png"))
 
 
+def encode_bulb_with_gd():
+    """Encode the bulb image using gradient descent and reconstruct it."""
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    bulb_screenshot_path = os.path.join(
+        os.path.dirname(__file__), 'data', 'bulb.png')
+
+    output_dir = os.path.join(os.path.dirname(__file__), 'output', 'gd')
+    os.makedirs(output_dir, exist_ok=True)
+    iterations = 100
+
+    bulb_screenshot = np.array(Image.open(
+        bulb_screenshot_path), dtype=np.float32) / 255
+    bulb_screenshot = torch.from_numpy(bulb_screenshot).to(device)
+
+    height, width, _ = bulb_screenshot.shape
+    assert height == width == 128, "Bulb screenshot is not 128x128 pixels."
+
+    bulb_occupancy_grid = bulb_screenshot[:, :, 3]
+    assert torch.sum(bulb_occupancy_grid.bool()
+                     ) == 1381, "Number of occupied pixels is not correct."
+
+    perfect_hash = PerfectSpatialHash(
+        bulb_occupancy_grid, 3, offset_table_size=18,
+        verbose=False)
+
+    optimizer = torch.optim.Adam(perfect_hash.parameters(), lr=0.01)
+
+    indices = torch.stack(torch.meshgrid(torch.arange(128, device=device),
+                                         torch.arange(128, device=device),
+                                         indexing='ij'), -1)
+
+    pbar = tqdm.trange(iterations)
+    for i in pbar:
+        optimizer.zero_grad()
+        values, sparsity = perfect_hash(indices.reshape(-1, 2))
+        reconstruction = (values * sparsity.unsqueeze(-1)).reshape(128, 128, 3)
+        loss = torch.sum((reconstruction - bulb_screenshot[:, :, :3]) ** 2)
+        pbar.set_postfix({'loss': loss.item()})
+        loss.backward()
+        optimizer.step()
+
+        if i % 10 == 0:
+            with torch.no_grad():
+                Image.fromarray((reconstruction.detach().clip(0, 1).cpu().numpy() * 255).astype(np.uint8)).save(
+                    os.path.join(output_dir, f"bulb_reconstruction_{i:04d}.png"))
+
+    # Save the reconstruction image.
+    reconstruction = (values * sparsity.unsqueeze(-1)).reshape(128, 128, 3)
+    Image.fromarray((reconstruction.detach().clip(0, 1).cpu().numpy() * 255).astype(np.uint8)).save(
+        os.path.join(output_dir, "bulb_reconstruction_final.png"))
+
+
 if __name__ == '__main__':
-    test_bulb()
+    # encode_bulb()
+    encode_bulb_with_gd()
