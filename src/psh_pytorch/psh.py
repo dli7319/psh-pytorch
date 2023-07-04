@@ -1,4 +1,4 @@
-from typing import Optional, Union
+from typing import Optional
 
 import numpy as np
 import torch
@@ -6,25 +6,6 @@ from torch import nn
 import tqdm
 
 from . import utils
-
-C1 = 1178101
-
-
-def sparsity_hash(k: Union[int, torch.Tensor], p: torch.Tensor) -> torch.Tensor:
-    """Hash function used for sparsity encoding
-
-    Args:
-        k: Which hash to use.
-        p: Points to hash as (N, D) tensor.
-
-    Returns:
-        torch.Tensor: The hash as (N,) tensor.
-    """
-    if isinstance(k, int):
-        k = torch.tensor(k, device=p.device, dtype=torch.uint8)
-    k = k.unsqueeze(-1)
-    hk = (p * (p + k * C1).rsqrt()).sum(dim=-1).frac()
-    return (256 * hk).clamp(0, 255).to(torch.uint8)
 
 
 class PerfectSpatialHash(nn.Module):
@@ -249,7 +230,6 @@ class PerfectSpatialHash(nn.Module):
         return True
 
     def _build_sparsity_encoding(self, occupancy_grid: torch.Tensor):
-        unoccupied_grid = ~occupancy_grid
         sparsity_k = torch.zeros(
             self.hash_table[..., 0].shape, dtype=torch.uint8, device=self.hash_table.device)
         sparsity_hk = torch.zeros(
@@ -259,12 +239,13 @@ class PerfectSpatialHash(nn.Module):
         occupied_indices_hashed = self.compute_hash(occupied_indices)
         sparsity_k[occupied_indices_hashed.unbind(-1)] = 1
         sparsity_hk[occupied_indices_hashed.unbind(
-            -1)] = sparsity_hash(1, occupied_indices)
+            -1)] = utils.sparsity_hash(1, occupied_indices)
 
+        unoccupied_grid = ~occupancy_grid
         unoccupied_indices = unoccupied_grid.nonzero(as_tuple=False)
         unoccupied_indices_hashed = self.compute_hash(unoccupied_indices)
         for i in range(1, 256):
-            unoccupied_indices_shashed = sparsity_hash(
+            unoccupied_indices_shashed = utils.sparsity_hash(
                 sparsity_k[unoccupied_indices_hashed.unbind(-1)], unoccupied_indices)
             collisions = torch.logical_and(
                 sparsity_k[unoccupied_indices_hashed.unbind(-1)] != 0,
@@ -275,15 +256,13 @@ class PerfectSpatialHash(nn.Module):
             if number_of_collisions == 0:
                 break
             sparsity_k[unoccupied_indices_hashed[collisions].unbind(-1)] = 0
-            sparsity_hk[unoccupied_indices_hashed[collisions].unbind(-1)] = (
-                sparsity_hk[unoccupied_indices_hashed[collisions].unbind(-1)] + 1)
-            if i < 254:
+            if i < 255:
                 collided_indices = sparsity_k[occupied_indices_hashed.unbind(
                     -1)] == 0
                 sparsity_k[occupied_indices_hashed[collided_indices]
                            .unbind(-1)] = i+1
                 sparsity_hk[occupied_indices_hashed[collided_indices].unbind(
-                    -1)] = sparsity_hash(i+1, occupied_indices[collided_indices])
+                    -1)] = utils.sparsity_hash(i+1, occupied_indices[collided_indices])
         return nn.Parameter(torch.stack([sparsity_k, sparsity_hk], dim=-1),
                             requires_grad=False)
 
@@ -323,7 +302,7 @@ class PerfectSpatialHash(nn.Module):
         sparsity_k, sparsity_hk = self.sparsity_encoding[hash_indices.unbind(
             -1)].unbind(-1)
         correct_hk = torch.logical_and(
-            sparsity_k > 0, sparsity_hash(sparsity_k, x) == sparsity_hk)
+            sparsity_k > 0, utils.sparsity_hash(sparsity_k, x) == sparsity_hk)
         return values, correct_hk
 
     def encode(self, positions: torch.Tensor, values: torch.Tensor):
@@ -341,6 +320,9 @@ class PerfectSpatialHash(nn.Module):
 
         Args:
             positions (torch.Tensor): Positions to check.
+
+        Returns:
+            bool: True if there are collisions, False otherwise.
         """
         hash_indices = self.compute_hash(positions)
         return torch.unique(hash_indices, dim=0).shape[0] != hash_indices.shape[0]
