@@ -5,7 +5,8 @@ from PIL import Image
 import numpy as np
 import tqdm
 
-from psh_pytorch import PerfectSpatialHash
+# Typically, you can import from psh_pytorch directly.
+from src.psh_pytorch import PerfectSpatialHash
 
 
 def encode_bulb():
@@ -80,7 +81,7 @@ def encode_bulb_with_gd():
                                          torch.arange(128, device=device),
                                          indexing='ij'), -1)
 
-    pbar = tqdm.trange(iterations)
+    pbar = tqdm.trange(iterations, desc="GD Iteration")
     for i in pbar:
         optimizer.zero_grad()
         values, sparsity = spatial_hash(indices.reshape(-1, 2))

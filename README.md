@@ -35,6 +35,11 @@ masked_values = values * sparsity.unsqueeze(-1)
 ## Examples
 See `examples/` for a simple example of how to use the library.
 
+If you clone the repository, you can run the example with:
+```bash
+python -m examples.2D_bulb
+```
+
 ## Limitations
 
 1. Currently, interpolation is not supported. Hence, you must use long indices and there are no gradients with respect to the indices.
