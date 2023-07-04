@@ -94,7 +94,16 @@ class PerfectSpatialHash(nn.Module):
             raise NotImplementedError("Slow construction not implemented yet.")
 
         if build_offset_table:
-            self.sparsity_encoding = self._build_sparsity_encoding(occupancy_grid)
+            self.sparsity_encoding = self._build_sparsity_encoding(
+                occupancy_grid)
+        else:
+            self.sparsity_encoding = nn.Parameter(torch.zeros(
+                tuple(self.hash_table.shape[:-1]) + (2,),
+                dtype=torch.uint8, device=device),
+                requires_grad=False)
+
+        self._register_load_state_dict_pre_hook(
+            self._update_parameter_sizes_from_state_dict)
 
     def _build_offset_table(self, occupancy_grid: torch.Tensor) -> bool:
         """Build the offset table.
@@ -341,3 +350,28 @@ class PerfectSpatialHash(nn.Module):
         """
         hash_indices = self.compute_hash(positions)
         return torch.unique(hash_indices, dim=0).shape[0] != hash_indices.shape[0]
+
+    def _update_parameter_sizes_from_state_dict(self,
+                                                state_dict, prefix,
+                                                local_metadata, strict,
+                                                missing_keys, unexpected_keys, error_msgs):
+        print(list(state_dict.keys()))
+        new_hash_table = state_dict[prefix + "hash_table"]
+        new_sparsity_encoding = state_dict[prefix + "sparsity_encoding"]
+        if self.hash_table_size != new_hash_table.shape[0]:
+            self.hash_table_size = new_hash_table.shape[0]
+            self.hash_table.data = torch.zeros(
+                new_hash_table.shape,
+                dtype=self.hash_table.dtype,
+                device=self.hash_table.device)
+            self.sparsity_encoding.data = torch.zeros(
+                new_sparsity_encoding.shape,
+                dtype=self.sparsity_encoding.dtype,
+                device=self.sparsity_encoding.device)
+        new_offset_table = state_dict[prefix + "offset_table"]
+        if self.offset_table_size != new_offset_table.shape[0]:
+            self.offset_table_size = new_offset_table.shape[0]
+            self.offset_table.data = torch.zeros(
+                new_offset_table.shape,
+                dtype=self.offset_table.dtype,
+                device=self.offset_table.device)

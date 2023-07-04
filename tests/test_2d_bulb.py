@@ -80,6 +80,26 @@ class Test2DBulb(unittest.TestCase):
         self.assertLess(new_loss, loss,
                         f"New Loss ({new_loss}) >= Old Loss ({loss})")
 
+    def test_load_from_state_dict(self):
+        """
+        Test that we can load from a state dict.
+        """
+        state_dict = self.spatial_hash.state_dict()
+        new_spatial_hash = PerfectSpatialHash(
+            self.bulb_image[:, :, 3], 3,
+            build_offset_table=False)
+        new_spatial_hash.load_state_dict(state_dict)
+
+        self.assertTrue(torch.allclose(self.spatial_hash.hash_table,
+                                       new_spatial_hash.hash_table),
+                        "Hash table not equal after loading from state dict.")
+        self.assertTrue(torch.allclose(self.spatial_hash.offset_table,
+                                       new_spatial_hash.offset_table),
+                        "Offset table not equal after loading from state dict.")
+        self.assertTrue(torch.allclose(self.spatial_hash.sparsity_encoding,
+                                       new_spatial_hash.sparsity_encoding),
+                        "Sparsity encoding not equal after loading from state dict.")
+
 
 if __name__ == '__main__':
     unittest.main()
