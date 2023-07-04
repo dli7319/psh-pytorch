@@ -9,10 +9,13 @@ from . import utils
 
 
 class PerfectSpatialHash(nn.Module):
-    def __init__(self, occupancy_grid: torch.Tensor, feature_channels: int,
+    def __init__(self, occupancy_grid: Optional[torch.Tensor], feature_channels: int,
                  fast_construction: bool = True,
-                 offset_table_size: Optional[int] = None,
                  fast_construction_offset_table_progression: float = 1.1,
+                 dimensions: Optional[int] = None,
+                 hash_table_size: Optional[int] = None,
+                 offset_table_size: Optional[int] = None,
+                 build_offset_table: bool = True,
                  verbose=False):
         """Initialize the perfect hash.
 
@@ -20,32 +23,43 @@ class PerfectSpatialHash(nn.Module):
             occupancy_grid: The occupancy grid as D-dimensional tensor.
             feature_channels: The number of channels of the hash table.
             fast_construction: If true, avoids binary searching over the offset table size.
-            offset_table_size: (Optional) The initial size of the offset table to test.
             fast_construction_offset_table_progression: (Optional) The progression factor of the offset table size.
+            build_offset_table: (Optional) Whether to compute the offset table. Requires the occupancy grid.
+            dimensions: (Optional) The number of dimensions of the hash table. Infered from the occupancy grid if available.
+            hash_table_size: (Optional) The size of the hash table to initialize. Infered from the occupancy grid if available.
+            offset_table_size: (Optional) The initial size of the offset table to test. Infered from the occupancy grid if unspecified.
             verbose: (Optional) Whether to print additional information.
         """
         super().__init__()
-        self.dimensions = len(occupancy_grid.shape)
+        if occupancy_grid is not None:
+            self.dimensions = len(occupancy_grid.shape)
+            num_values = torch.sum(occupancy_grid).item()
+            device = occupancy_grid.device
+            occupancy_grid = occupancy_grid.bool()
+        else:
+            assert dimensions is not None, "Either occupancy_grid or dimensions must be specified."
+            assert hash_table_size is not None, "Either occupancy_grid or hash_table_size must be specified."
+            assert offset_table_size is not None, "Either occupancy_grid or offset_table_size must be specified."
+            assert not build_offset_table, "Cannot build offset table without occupancy grid."
+            self.dimensions = dimensions
+            num_values = 1
+            device = torch.device("cpu")
         self.verbose = verbose
-        device = occupancy_grid.device
-        occupancy_grid = occupancy_grid.bool()
+        self.verbose and print("Number of values:", num_values)
 
-        self.num_values = torch.sum(occupancy_grid).item()
-        self.verbose and print("Number of values:", self.num_values)
-
-        self.hash_table_size = int(np.ceil(
-            self.num_values ** (1 / self.dimensions)))
+        self.hash_table_size = hash_table_size or int(np.ceil(
+            num_values ** (1 / self.dimensions)))
         self.verbose and print("Hash table size:", self.hash_table_size)
         if self.hash_table_size > 256:
             self.hash_table_size = int(np.ceil(
-                (1.01 * self.num_values) ** (1 / self.dimensions)))
+                (1.01 * num_values) ** (1 / self.dimensions)))
         self.hash_table = nn.Parameter(torch.zeros(
             (self.hash_table_size,) * self.dimensions + (feature_channels,),
             dtype=torch.float32, device=device))
 
         sigma = 1 / (2 * self.dimensions)
         initial_offset_table_size = offset_table_size or int(np.ceil(
-            (sigma * self.num_values) ** (1 / self.dimensions)))
+            (sigma * num_values) ** (1 / self.dimensions)))
         self.offset_table_size = initial_offset_table_size
         self.verbose and print("Offset table size:", self.offset_table_size)
         self.offset_table = nn.Parameter(torch.zeros(
@@ -58,7 +72,7 @@ class PerfectSpatialHash(nn.Module):
                              dtype=torch.float32, device=device)
         self.oscale = np.ceil(self.hash_table_size / 255)
 
-        while not self._build_offset_table(occupancy_grid):
+        while build_offset_table and not self._build_offset_table(occupancy_grid):
             # Increase the offset table size.
             new_offset_table_size = int(max(
                 np.round(fast_construction_offset_table_progression *
@@ -73,13 +87,14 @@ class PerfectSpatialHash(nn.Module):
                 dtype=torch.uint8, device=device), requires_grad=False)
         # Reset the hash table.
         self.hash_table.data = torch.rand_like(self.hash_table.data)
-        if not fast_construction:
+        if build_offset_table and not fast_construction:
             # TODO: Binary search for the offset table size.
             low = initial_offset_table_size
             high = self.offset_table_size + 1
             raise NotImplementedError("Slow construction not implemented yet.")
 
-        self.sparsity_encoding = self._build_sparsity_encoding(occupancy_grid)
+        if build_offset_table:
+            self.sparsity_encoding = self._build_sparsity_encoding(occupancy_grid)
 
     def _build_offset_table(self, occupancy_grid: torch.Tensor) -> bool:
         """Build the offset table.
