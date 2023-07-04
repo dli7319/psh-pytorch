@@ -3,7 +3,7 @@ import unittest
 from PIL import Image
 import numpy as np
 import torch
-from src.psh_pytorch import PerfectSpatialHash
+from psh_pytorch import PerfectSpatialHash
 
 
 class Test2D(unittest.TestCase):
