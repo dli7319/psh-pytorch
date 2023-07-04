@@ -44,6 +44,10 @@ python -m examples.2D_bulb
 
 1. Currently, interpolation is not supported. Hence, you must use long indices and there are no gradients with respect to the indices.
 
+## Development
+
+* Run tests with `pytest`.
+
 ## Acknowledgement
 If you find this library useful, please consider citing the original paper:
 ```bibtex
