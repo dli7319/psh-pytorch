@@ -100,6 +100,23 @@ def encode_bulb_with_gd():
     reconstruction = (values * sparsity.unsqueeze(-1)).reshape(128, 128, 3)
     Image.fromarray((reconstruction.detach().clip(0, 1).cpu().numpy() * 255).astype(np.uint8)).save(
         os.path.join(output_dir, "bulb_reconstruction_final.png"))
+    
+    # Save the hash table.
+    hash_table = spatial_hash.hash_table.detach().cpu().numpy()
+    Image.fromarray((hash_table * 255).astype(np.uint8)).save(
+        os.path.join(output_dir, "bulb_hash_table.png"))
+    
+    # Save the offset table.
+    offset_table = spatial_hash.offset_table.detach().cpu().numpy()
+    offset_table = np.concatenate((offset_table, np.ones_like(offset_table[...,:1])), axis=-1)
+    Image.fromarray((offset_table * 255).astype(np.uint8)).save(
+        os.path.join(output_dir, "bulb_offset_table.png"))
+    
+    # Save the sparsity encoding.
+    sparsity_encoding = spatial_hash.sparsity_encoding.detach().cpu().numpy()
+    sparsity_encoding = np.concatenate((sparsity_encoding, np.ones_like(sparsity_encoding[...,:1])), axis=-1)
+    Image.fromarray((sparsity_encoding * 255).astype(np.uint8)).save(
+        os.path.join(output_dir, "bulb_sparsity_encoding.png"))
 
 
 if __name__ == '__main__':
