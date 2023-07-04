@@ -131,7 +131,7 @@ class PerfectSpatialHash(nn.Module):
             if (torch.bincount(indices_h0) > 1).any():
                 return False
 
-        offset_table_assigned = torch.zeros_like(self.offset_table[:, :, 0])
+        offset_table_assigned = torch.zeros_like(self.offset_table[..., 0])
 
         current_index = 0
         # Assign the first offset.
