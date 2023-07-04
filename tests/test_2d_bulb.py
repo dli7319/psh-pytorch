@@ -6,7 +6,7 @@ import torch
 from psh_pytorch import PerfectSpatialHash
 
 
-class Test2D(unittest.TestCase):
+class Test2DBulb(unittest.TestCase):
     def setUp(self):
         torch.manual_seed(0)
         self.device = device = torch.device("cpu")
