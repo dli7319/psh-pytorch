@@ -1,4 +1,4 @@
-from typing import Union
+from typing import Union, Sequence
 
 import torch
 
@@ -37,21 +37,22 @@ def unravel_index(index, dims):
     return index.unsqueeze(-1) % dims_cumprod[:-1] // dims_cumprod[1:]
 
 
-def sparsity_hash(k: Union[int, torch.Tensor], p: torch.Tensor) -> torch.Tensor:
+def sparsity_hash(k: Union[int, torch.Tensor], p: torch.Tensor,
+                  primes: Union[Sequence[int], torch.Tensor] = C1) -> torch.Tensor:
     """Hash function used for sparsity encoding
 
     Args:
         k: Which hash to use.
         p: Points to hash as (N, D) tensor.
+        primes: (Optional) The primes to use for the hash.
 
     Returns:
         torch.Tensor: The hash as (N,) tensor.
     """
-    if isinstance(k, int):
-        k = torch.tensor(k, device=p.device, dtype=torch.uint8)
-    d = p.shape[-1]
-    k = k.float().unsqueeze(-1)
+    k = torch.as_tensor(k, device=p.device, dtype=torch.float32)
+    k = k.reshape((-1,) * (p.dim() - 1) + (1,))
     p = p.float()
-    primes_tensor = torch.tensor(C1[:d], device=p.device, dtype=torch.float)
-    hk = (p * (p + k * primes_tensor).rsqrt()).sum(dim=-1).frac()
+    primes = (torch.as_tensor(primes[:p.shape[-1]])
+              .to(device=p.device, dtype=torch.float))
+    hk = (p * (p + k * primes).rsqrt()).sum(dim=-1).frac()
     return (256 * hk).clamp(0, 255).to(torch.uint8)
