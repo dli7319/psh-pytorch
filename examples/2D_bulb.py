@@ -1,4 +1,5 @@
 import os
+import time
 
 import torch
 from PIL import Image
@@ -71,9 +72,16 @@ def encode_bulb_with_gd():
     assert torch.sum(bulb_occupancy_grid.bool()
                      ) == 1381, "Number of occupied pixels is not correct."
 
+    torch.cuda.synchronize()
+    t0 = time.time()
     spatial_hash = PerfectSpatialHash(
         bulb_occupancy_grid, 3, offset_table_size=18,
-        verbose=False)
+        verbose=True)
+    torch.cuda.synchronize()
+    t1 = time.time()
+    print(f"Time to build the spatial hash: {t1 - t0:.3f}s")
+    print(f"Offset table size: {spatial_hash.offset_table.shape}")
+
 
     optimizer = torch.optim.Adam(spatial_hash.parameters(), lr=0.01)
 
