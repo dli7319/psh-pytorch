@@ -1,4 +1,9 @@
+# Development and example dependencies
 torch
 numpy
 tqdm
 pillow
+parameterized
+open3d
+pytest
+flake8

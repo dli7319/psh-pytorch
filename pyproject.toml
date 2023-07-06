@@ -1,6 +1,6 @@
 [project]
 name = "psh-pytorch"
-version = "0.0.2"
+version = "0.0.3"
 authors = [
   { name="David Li", email="david@davidl.me" },
 ]
@@ -12,10 +12,11 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
-dynamic = ["dependencies"]
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
+dependencies = [
+  "torch",
+  "numpy",
+  "tqdm",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/dli7319/psh-pytorch"
