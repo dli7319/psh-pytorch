@@ -211,27 +211,28 @@ class PerfectSpatialHash(nn.Module):
                                                occupancy_grid_size: int,
                                                assign_offset: Callable[[torch.Tensor], bool]) -> bool:
         """Heuristic: Assign an offset to the current pixel from neighboring pixels."""
-        if len(pixel_indices) < 10:
-            for pixel_index in pixel_indices:
-                for direction in range(self.dimensions):
-                    direction_offset = torch.zeros(
-                        (self.dimensions,), dtype=torch.long, device=self.offset_table.device)
-                    direction_offset[direction] = 1
-                    index = (pixel_index +
-                             direction_offset).clamp(0, occupancy_grid_size - 1)
-                    oindex = (
-                        index * self.m1).long() % self.offset_table_size
-                    if (offset_table_assigned[oindex.unbind(-1)] and
-                            assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
-                        return True
-                    direction_offset[direction] = -1
-                    index = (pixel_index +
-                             direction_offset).clamp(0, occupancy_grid_size - 1)
-                    oindex = (
-                        index * self.m1).long() % self.offset_table_size
-                    if (offset_table_assigned[oindex.unbind(-1)] and
-                            assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
-                        return True
+        if len(pixel_indices) >= 10:
+            return False
+        for pixel_index in pixel_indices:
+            for direction in range(self.dimensions):
+                direction_offset = torch.zeros(
+                    (self.dimensions,), dtype=torch.long, device=self.offset_table.device)
+                direction_offset[direction] = 1
+                index = (pixel_index +
+                            direction_offset).clamp(0, occupancy_grid_size - 1)
+                oindex = (
+                    index * self.m1).long() % self.offset_table_size
+                if (offset_table_assigned[oindex.unbind(-1)] and
+                        assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
+                    return True
+                direction_offset[direction] = -1
+                index = (pixel_index +
+                            direction_offset).clamp(0, occupancy_grid_size - 1)
+                oindex = (
+                    index * self.m1).long() % self.offset_table_size
+                if (offset_table_assigned[oindex.unbind(-1)] and
+                        assign_offset(self.offset_table[oindex.unbind(-1)].clone())):
+                    return True
         return False
 
     def _assign_offset_from_neighboring_offsets(self,
